@@ -3,7 +3,6 @@
 import streamlit as st
 
 from helpers.auth_utils import require_login
-from helpers.appwrite_utils import list_documents
 from helpers.bot_utils import (
     create_post,
     create_comment,
@@ -11,8 +10,34 @@ from helpers.bot_utils import (
     add_like_to_comment,
     get_comments_for_post,
 )
+from helpers.appwrite_utils import (
+    list_documents,
+    # …whatever else you already import …
+    get_image_bytes,
+    upload_image_file,
+)
 from config import POSTS_COLLECTION_ID
+import hashlib
 
+def user_color(user_id: str) -> str:
+    """Generate a deterministic color hex based on the user_id."""
+    colors = [
+        "#e57373", "#64b5f6", "#81c784", "#ffb74d",
+        "#ba68c8", "#4dd0e1", "#ffd54f", "#90a4ae",
+    ]
+    h = int(hashlib.sha256(user_id.encode("utf-8")).hexdigest(), 16)
+    return colors[h % len(colors)]
+
+
+def user_badge(user_id: str) -> str:
+    """Return small HTML badge with colored circle + userid."""
+    color = user_color(user_id)
+    return f"""
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:#aaa;">
+      <span style="width:12px;height:12px;border-radius:50%;background:{color};display:inline-block;"></span>
+      <span>posted by: <code>{user_id}</code></span>
+    </span>
+    """
 
 def run_feed_page() -> None:
     """Render the main social feed with posts, likes and comments."""
@@ -35,15 +60,30 @@ def run_feed_page() -> None:
     st.subheader("Create a new post")
     new_title = st.text_input("Title", key="new_post_title")
     new_content = st.text_area("Content", key="new_post_content")
+    uploaded_image = st.file_uploader(
+        "Optional image",
+        type=["png", "jpg", "jpeg", "gif"],
+        key="new_post_image",
+    )
+
     if st.button("Publish post"):
-        if not new_title or not new_content:
+        user = st.session_state.get("user")
+        if not user:
+            st.warning("You must be logged in to post.")
+        elif not new_title or not new_content:
             st.warning("Please fill in both the title and content.")
         else:
-            try:
-                create_post(new_title, new_content, None, user.get("$id"))
-                st.success("Post published!")
-            except Exception as exc:
-                st.error(f"Error creating post: {exc}")
+            image_file_id = None
+            if uploaded_image is not None:
+                try:
+                    image_file_id = upload_image_file(
+                        uploaded_image.name,
+                        uploaded_image.getvalue(),
+                    )
+                except Exception as exc:
+                    st.error(f"Failed to upload image: {exc}")
+            create_post(new_title, new_content, image_file_id, user.get("$id"))
+            st.success("Post published!")
             st.rerun()
     st.markdown("---")
     # Display posts
@@ -51,10 +91,16 @@ def run_feed_page() -> None:
         post_id = post.get("$id")
         st.markdown(f"### {post.get('title')}")
         st.write(post.get("content"))
+        post_user_id = post.get("userid", "unknown")
+        st.markdown(user_badge(post_user_id), unsafe_allow_html=True)
         # Display image if available
-        img_url = post.get("imageurl")
-        if img_url:
-            st.image(img_url, use_column_width=True)
+        image_file_id = post.get("imageurl")
+        if image_file_id:
+            try:
+                img_bytes = get_image_bytes(image_file_id)
+                st.image(img_bytes, use_column_width=True)
+            except Exception as exc:
+                st.error(f"Could not load image: {exc}")
         likes = post.get("likes", 0)
         st.write(f"Likes: {likes}")
         # Like button
@@ -75,6 +121,12 @@ def run_feed_page() -> None:
                 comment_id = comment.get("$id")
                 comment_content = comment.get("content")
                 comment_likes = comment.get("likes", 0)
+                comment_user_id = comment.get("userid", "unknown")
+
+                st.markdown(
+                    user_badge(comment_user_id),
+                    unsafe_allow_html=True,
+                )
                 st.write(f"{comment_content} (likes: {comment_likes})")
                 if st.button(
                     f"Like comment {comment_id}",

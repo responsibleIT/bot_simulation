@@ -115,8 +115,17 @@ def run_post_bot(bot: Dict[str, Any], important_people: List[str], logs: List[st
     title = generated.get("title", "")
     content = generated.get("content", "")
     # Generate an image using OpenAI if configured
-    image_url = call_openai_image(content) if content else None
-    create_post(title, content, image_url, bot.get("$id"))
+    image_file_id = None
+    if content:
+        openai_image_url = call_openai_image(content)
+        if openai_image_url:
+            try:
+                from helpers.appwrite_utils import upload_image_from_url
+                image_file_id = upload_image_from_url(openai_image_url)
+            except Exception as exc:
+                logs.append(f"Bot {bot.get('$id')} failed to upload image: {exc}")
+
+    create_post(title, content, image_file_id, bot.get("$id"))
     logs.append(f"Bot {bot.get('$id')} posted a new message titled '{title}'.")
 
 

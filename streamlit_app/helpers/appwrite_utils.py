@@ -1,25 +1,27 @@
-"""Appwrite helper utilities.
+"""
+Appwrite helpers built on the official Python SDK (TablesDB).
 
-This module centralises all interaction with the Appwrite API.  It attempts to
-use the official Python SDK whenever available for type‑safe access to
-databases and queries.  If the SDK cannot be imported (for example when
-developing offline), it falls back to simple REST calls via ``requests``.  The
-rest of the application code can remain agnostic to whether the SDK or REST
-implementation is being used.
-
-Use :func:`q_equal` to build equality queries in a backend‑agnostic way.  Use
-:func:`list_documents`, :func:`create_document` and :func:`update_document` to
-interact with your collections.  See the README for details on configuring
-Appwrite credentials via environment variables or a ``.env`` file.
+We expose a small set of convenience functions that the rest of the app uses:
+- q_equal(field, value)
+- list_documents(table_id, queries=None)
+- create_document(table_id, document_id, data)
+- update_document(table_id, document_id, data)
+- generate_id()
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional
+from config import IMAGE_BUCKET_ID
 
-# Import configuration from the streamlit_app package.  Absolute import is used
-# here to ensure the module resolves correctly when imported from subpackages.
+from appwrite.client import Client
+from appwrite.id import ID
+from appwrite.query import Query
+from appwrite.services.tables_db import TablesDB
+from appwrite.services.storage import Storage
+from appwrite.input_file import InputFile
+import requests
+
 from config import (
     APPWRITE_ENDPOINT,
     APPWRITE_PROJECT_ID,
@@ -27,129 +29,166 @@ from config import (
     DATABASE_ID,
 )
 
-# ----------------------------------------------------------------------------
-# Official Appwrite SDK implementation
-#
-# This module now requires the ``appwrite`` Python package to be installed.
-# It provides thin wrappers around the official SDK to simplify usage in the
-# rest of the application.  Queries are constructed using the ``Query`` class
-# and passed directly to the SDK without any manual HTTP handling.
-#
-# If the SDK cannot be imported, a clear ImportError will be raised when this
-# module is imported.  Please ensure ``pip install appwrite`` is executed in
-# your environment.
-# ----------------------------------------------------------------------------
-
-from appwrite.client import Client
-from appwrite.services.databases import Databases
-from appwrite.query import Query
-from appwrite.id import ID
+# ---------------------------------------------------------------------------
+# Singleton client + TablesDB
+# ---------------------------------------------------------------------------
 
 _client: Optional[Client] = None
-_databases: Optional[Databases] = None
+_tables_db: Optional[TablesDB] = None
+_storage: Optional[Storage] = None
 
 
-def _ensure_client() -> Databases:
-    """Initialise and cache the Appwrite client and database service.
+def _get_client() -> Client:
+    """Return a singleton Appwrite Client configured from config.py."""
+    global _client
+    if _client is None:
+        c = Client()
+        (
+            c.set_endpoint(APPWRITE_ENDPOINT)
+             .set_project(APPWRITE_PROJECT_ID)
+             .set_key(APPWRITE_API_KEY)
+        )
+        _client = c
+    return _client
 
-    Returns the ``Databases`` service instance.  This function is idempotent and
-    will only construct the client once.
+
+def _get_tables_db() -> TablesDB:
+    """Return a singleton TablesDB service."""
+    global _tables_db
+    if _tables_db is None:
+        _tables_db = TablesDB(_get_client())
+    return _tables_db
+
+def _get_storage() -> Storage:
+    """Return a singleton Storage service."""
+    global _storage
+    if _storage is None:
+        _storage = Storage(_get_client())
+    return _storage
+
+# ---------------------------------------------------------------------------
+# Query helper
+# ---------------------------------------------------------------------------
+
+def q_equal(field: str, value: Any) -> str:
     """
-    global _client, _databases
-    if _client is None or _databases is None:
-        if not (APPWRITE_ENDPOINT and APPWRITE_PROJECT_ID and APPWRITE_API_KEY):
-            raise RuntimeError(
-                "Appwrite configuration is missing. Please set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID and APPWRITE_API_KEY."
-            )
-        client = Client()
-        client.set_endpoint(APPWRITE_ENDPOINT)
-        client.set_project(APPWRITE_PROJECT_ID)
-        client.set_key(APPWRITE_API_KEY)
-        _client = client
-        _databases = Databases(_client)
-    return _databases  # type: ignore
+    Thin wrapper around Query.equal.
 
+    For a single value, usage is:
 
-def q_equal(field: str, value: Any) -> Query:
-    """Construct a Query.equal() object for the given field and value.
+        q_equal("email", "test@hva.nl")
 
-    Appwrite expects the values to be provided as an array for equality checks.
-    This helper wraps single values into a list automatically.  If ``value`` is
-    already a list or tuple, it is passed through unchanged.
+    which is equivalent to:
 
-    Example::
+        Query.equal("email", "test@hva.nl")
 
-        q_equal("email", "test@hva.nl")  # becomes Query.equal("email", ["test@hva.nl"])
-
-    Returns a ``Query`` object suitable for use with the SDK.
+    If you ever need multiple values, you can call Query.equal directly with
+    a list, e.g. Query.equal("title", ["Avatar", "Lord of the Rings"]).
     """
-    # Wrap non-sequence values in a list
-    if isinstance(value, (list, tuple)):
-        vals = list(value)
-    else:
-        vals = [value]
-    return Query.equal(field, vals)
+    return Query.equal(field, value)
 
 
-def list_documents(collection_id: str, queries: Optional[List[Query]] = None) -> List[Dict[str, Any]]:
-    """Retrieve documents from a collection using the Appwrite SDK.
+# ---------------------------------------------------------------------------
+# “Document” helpers (actually rows in TablesDB)
+# ---------------------------------------------------------------------------
 
-    Args:
-        collection_id: The collection identifier.
-        queries: A list of ``Query`` objects.  If ``None``, no filtering is applied.
-
-    Returns:
-        A list of document dictionaries.
+def list_documents(
+    table_id: str,
+    queries: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """
-    db = _ensure_client()
-    resp = db.list_documents(
+    List rows from a table (called 'documents' in the rest of the app).
+
+    Returns a list of row dicts. The SDK returns an object with a 'rows' field.
+    """
+    tables = _get_tables_db()
+    kwargs: Dict[str, Any] = {
+        "database_id": DATABASE_ID,
+        "table_id": table_id,
+    }
+    if queries:
+        kwargs["queries"] = queries
+
+    result = tables.list_rows(**kwargs)
+    # TablesDB returns: { "rows": [ ... ], "total": ..., ... }
+    return result.get("rows", [])
+
+
+def create_document(
+    table_id: str,
+    document_id: str,
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Create a new row in a table.
+
+    The rest of the app still calls this 'document' for backwards compatibility.
+    """
+    tables = _get_tables_db()
+    return tables.create_row(
         database_id=DATABASE_ID,
-        collection_id=collection_id,
-        queries=queries or []
-    )
-    return resp.get("documents", [])
-
-
-def create_document(collection_id: str, document_id: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a new document using the Appwrite SDK.
-
-    Args:
-        collection_id: The collection identifier.
-        document_id: The desired document ID or ``ID.unique()`` for an auto ID.
-        data: Dictionary of document fields.
-
-    Returns:
-        The created document.
-    """
-    db = _ensure_client()
-    return db.create_document(
-        database_id=DATABASE_ID,
-        collection_id=collection_id,
-        document_id=document_id,
-        data=data
-    )
-
-
-def update_document(collection_id: str, document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update an existing document using the Appwrite SDK.
-
-    Args:
-        collection_id: The collection identifier.
-        document_id: The document identifier.
-        data: A dictionary of fields to update.
-
-    Returns:
-        The updated document.
-    """
-    db = _ensure_client()
-    return db.update_document(
-        database_id=DATABASE_ID,
-        collection_id=collection_id,
-        document_id=document_id,
-        data=data
+        table_id=table_id,
+        row_id=document_id,
+        data=data,
     )
 
 
-def generate_id() -> Any:
-    """Return a new unique identifier for a document using the SDK."""
+def update_document(
+    table_id: str,
+    document_id: str,
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Update an existing row in a table.
+    """
+    tables = _get_tables_db()
+    return tables.update_row(
+        database_id=DATABASE_ID,
+        table_id=table_id,
+        row_id=document_id,
+        data=data,
+    )
+
+# ---------------------------------------------------------------------------
+# “Bucket” helpers for uploading images
+# ---------------------------------------------------------------------------
+
+def upload_image_file(file_name: str, file_bytes: bytes) -> str:
+    """
+    Upload an image to the configured IMAGE_BUCKET_ID and
+    return the Appwrite file ID.
+    """
+    storage = _get_storage()
+    result = storage.create_file(
+        bucket_id=IMAGE_BUCKET_ID,
+        file_id=ID.unique(),
+        file=InputFile.from_bytes(file_bytes, file_name),
+    )
+    return result["$id"]
+
+
+def get_image_bytes(file_id: str) -> bytes:
+    """
+    Download an image from the bucket as raw bytes, suitable for st.image().
+    """
+    storage = _get_storage()
+    # get_file_view returns a bytes-like object for images
+    return storage.get_file_view(bucket_id=IMAGE_BUCKET_ID, file_id=file_id)
+
+
+def upload_image_from_url(url: str, file_name: str = "image.png") -> str:
+    """
+    Download an image from a URL and upload it to Appwrite.
+    Returns the new file ID.
+    Useful for bot-generated images (e.g. from OpenAI).
+    """
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return upload_image_file(file_name, resp.content)
+
+
+def generate_id() -> str:
+    """
+    Generate a unique ID using Appwrite's ID.unique() helper.
+    """
     return ID.unique()

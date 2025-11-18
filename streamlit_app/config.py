@@ -50,6 +50,9 @@ POSTS_COLLECTION_ID: str = os.environ.get("POSTS_COLLECTION_ID", "posts")
 USERS_COLLECTION_ID: str = os.environ.get("USERS_COLLECTION_ID", "users")
 COMMENTS_COLLECTION_ID: str = os.environ.get("COMMENTS_COLLECTION_ID", "comments")
 
+# ID of the Appwrite storage bucket for post images
+IMAGE_BUCKET_ID = "691c3ffd0025ad4c1e1b"
+
 # Comma-separated list of admin e‑mail addresses.  These users can access the
 # analysis screen to run bots.
 _admins = os.environ.get("ADMIN_EMAILS", "")
