@@ -23,6 +23,7 @@ def run_login_page() -> None:
     if 'user' in st.session_state:
         user = st.session_state['user']
         st.info(f"You are already logged in as {user.get('email')}. Use the sidebar to navigate to other pages.")
+        st.write(f"Your username is: {user.get('$id')}")
         return
     email = st.text_input("School e‑mail address")
     popularity = st.selectbox(

@@ -9,7 +9,7 @@ databases and for running bots.  It depends on the low‑level functions in
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 from helpers.appwrite_utils import (
     q_equal,
@@ -17,6 +17,7 @@ from helpers.appwrite_utils import (
     create_document,
     update_document,
     generate_id,
+    upload_image_from_url,
 )
 from helpers.openai_utils import (
     generate_post_using_chatgpt,
@@ -117,13 +118,13 @@ def run_post_bot(bot: Dict[str, Any], important_people: List[str], logs: List[st
     # Generate an image using OpenAI if configured
     image_file_id = None
     if content:
-        openai_image_url = call_openai_image(content)
-        if openai_image_url:
-            try:
-                from helpers.appwrite_utils import upload_image_from_url
-                image_file_id = upload_image_from_url(openai_image_url)
-            except Exception as exc:
-                logs.append(f"Bot {bot.get('$id')} failed to upload image: {exc}")
+        openai_url = call_openai_image(content)
+        if openai_url:
+            # upload to Appwrite and get back a short file_id
+            image_file_id = upload_image_from_url(
+                openai_url,
+                f"bot_{bot.get('$id')}_post.png",
+            )
 
     create_post(title, content, image_file_id, bot.get("$id"))
     logs.append(f"Bot {bot.get('$id')} posted a new message titled '{title}'.")
@@ -211,3 +212,63 @@ def run_bots_once(logs: List[str]) -> None:
                 run_reaction_bot(bot, important_people, bot_ids, logs)
             else:
                 logs.append(f"Bot {bot.get('$id')} has unknown type '{bottype}'.")
+
+
+def run_bots_once_callback(
+    callback: Callable[[str], None],
+    snapshot_callback: Optional[Callable[[], None]] = None,
+) -> None:
+    """Run bots once and stream log messages via a callback.
+
+    This variant of :func:`run_bots_once` performs the same logic but does
+    not rely on a pre‑allocated list.  Instead, each log message is sent to
+    the provided ``callback`` immediately after it is generated.  The caller
+    can use this to update a live view of bot activity.
+
+    Args:
+        callback: A function that accepts a single string message.  It will
+            be invoked for each log entry generated during the run.
+    """
+    # Fetch all bots
+    bot_docs = list_documents(BOTS_COLLECTION_ID)
+    if not bot_docs:
+        callback("No bots found in the database.")
+        return
+    # Determine the list of important people
+    important_people = find_important_people()
+    # Precompute bot ids
+    bot_ids = [b.get("$id") for b in bot_docs]
+
+    # Log buffer for one timestep
+    logs: List[str] = []
+
+    for bot in bot_docs:
+        bottype = bot.get("bottype")
+        activity = bot.get("activitylevel", 0)
+
+        try:
+            activity_count = int(activity)
+        except (TypeError, ValueError):
+            activity_count = 0
+
+        for _ in range(activity_count):
+
+            if bottype == "post":
+                run_post_bot(bot, important_people, logs)
+
+            elif bottype == "comment":
+                run_comment_bot(bot, important_people, logs)
+
+            elif bottype == "reaction":
+                run_reaction_bot(bot, important_people, bot_ids, logs)
+
+            else:
+                logs.append(f"Bot {bot.get('$id')} has unknown type '{bottype}'.")
+
+            # 🔥 Flush logs immediately through the callback
+            while logs:
+                callback(logs.pop(0))
+
+            # 🔥 snapshot after each bot run (one timestep)
+            if snapshot_callback is not None:
+                snapshot_callback()

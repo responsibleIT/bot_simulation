@@ -105,8 +105,8 @@ def generate_post_using_chatgpt(original_post: str, bot_tone: str) -> Optional[D
         {
             "name": "generate_post",
             "description": (
-                f"Generate a new post based on the original post: {original_post}. "
-                f"The new post should have a specific tone: {bot_tone}. "
+                f"Generate a new post based on the original post: {original_post}. Write the post like someone would on social media. Make it seem it's written by a human and not AI."
+                f"The new post should have a specific tone: {bot_tone}. Also make sure that this tone is reflected in both the title and content of the post in a human on social media way."
                 "The new post should be generated using the ChatGPT model."
             ),
             "parameters": {
@@ -133,7 +133,7 @@ def generate_post_using_chatgpt(original_post: str, bot_tone: str) -> Optional[D
         }
     ]
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the supplied tools to assist the user."},
+        {"role": "system", "content": "You are a helpful assistant. Use the supplied tools to assist the user in a human way."},
         {
             "role": "user",
             "content": (
@@ -155,8 +155,8 @@ def generate_comment_using_chatgpt(original_post: str, bot_tone: str) -> Optiona
         {
             "name": "generate_comment",
             "description": (
-                f"Generate a new comment based on the original post: {original_post}. "
-                f"The new comment should have a specific tone: {bot_tone}. "
+                f"Generate a new comment based on the original post: {original_post}. Write the comment like someone would on social media. Make it seem it's written by a human and not AI."
+                f"The new comment should have a specific tone: {bot_tone}. Also make sure that this tone is reflected in the comment in a human on social media way."
                 "The new comment should be generated using the ChatGPT model."
             ),
             "parameters": {
