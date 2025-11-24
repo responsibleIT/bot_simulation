@@ -339,8 +339,8 @@ def main():
     )
     parser.add_argument(
         "--base-url",
-        default="http://localhost:8501",
-        help="Base URL of the bot simulation site (default: http://localhost:8501)",
+        default="https://botsimulator.responsible-it.nl",
+        help="Base URL of the bot simulation site (default: https://botsimulator.responsible-it.nl)",
     )
     parser.add_argument(
         "--comment",
