@@ -8,9 +8,6 @@ __pycache__/
 .env
 *.env
 
-# Streamlit
-.streamlit/
-
 # Development files
 .vscode/
 .idea/
