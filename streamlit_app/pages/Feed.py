@@ -58,15 +58,15 @@ def run_feed_page() -> None:
     posts.sort(key=lambda p: (p.get("likes", 0), p.get("$createdAt", "")), reverse=True)
     # New post form at the top
     st.subheader("Create a new post")
-    new_title = st.text_input("Title", key="new_post_title")
-    new_content = st.text_area("Content", key="new_post_content")
+    new_title = st.text_input("Title", key="new_post_title", placeholder="Write the title here")
+    new_content = st.text_area("Content", key="new_post_content", placeholder="Write the content here")
     uploaded_image = st.file_uploader(
         "Optional image",
         type=["png", "jpg", "jpeg", "gif"],
         key="new_post_image",
     )
 
-    if st.button("Publish post"):
+    if st.button("Publish post", key="publish_post_button"):
         user = st.session_state.get("user")
         if not user:
             st.warning("You must be logged in to post.")
@@ -138,7 +138,7 @@ def run_feed_page() -> None:
                         st.error(f"Error liking comment: {exc}")
                     st.rerun()
             # Add a new comment
-            new_comment = st.text_input("Your comment", key=f"new_comment_{post_id}")
+            new_comment = st.text_input("Your comment", key=f"new_comment_{post_id}", placeholder="Write your comment here")
             if st.button(f"Add comment to {post_id}", key=f"add_comment_{post_id}"):
                 if not new_comment:
                     st.warning("Please enter a comment.")

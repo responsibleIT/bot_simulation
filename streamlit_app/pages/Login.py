@@ -25,11 +25,15 @@ def run_login_page() -> None:
         st.info(f"You are already logged in as {user.get('email')}. Use the sidebar to navigate to other pages.")
         st.write(f"Your username is: {user.get('$id')}")
         return
-    email = st.text_input("School e‑mail address")
+    email = st.text_input(
+        "School e-mail address",
+        key="login_email",
+        placeholder="Enter your school e-mail address"
+    )
     popularity = st.selectbox(
         "Popularity score (1 = important, 0 = ordinary)", options=[1, 0], index=1
     )
-    if st.button("Log in / Register"):
+    if st.button("Log in / Register", key="login_button"):
         if not email:
             st.warning("Please enter an e‑mail address.")
             return

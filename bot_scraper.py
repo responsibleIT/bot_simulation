@@ -1,19 +1,6 @@
 """
 Automated bot for the Bot Simulation platform
 ------------------------------------------------
-
-This script uses Selenium WebDriver with ChromeDriver to automate logging into your
-Bot Simulation site and posting the comment "Be aware of Dark Technology #DarkTech"
-under each existing post. It is intended as a starting point for students to explore
-web automation techniques. You may need to tweak the element locators (XPaths, CSS selectors)
-to match your site's HTML structure.
-
-Prerequisites:
-    - Python 3.8 or higher
-    - Selenium installed (see requirements.txt)
-    - webdriver-manager installed (optional but recommended)
-    - Chromedriver available on your PATH or managed by webdriver_manager
-
 To run this script:
 
     python bot_scraper.py --email your_email@example.com
@@ -22,7 +9,7 @@ It will open a browser window, log in with the provided email, navigate to the f
 and post the predefined comment under each post it finds.
 
 Disclaimer:
-    This script interacts with a controlled environment (your own bot simulation).
+    This script interacts with a controlled environment (our own bot simulation).
     Do not use it to automate actions on public websites without permission, as that
     can violate terms of service and may be unethical or illegal.
 """
@@ -35,10 +22,12 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 try:
     # Use webdriver_manager if available to download/manage chromedriver automatically
     from webdriver_manager.chrome import ChromeDriverManager
+
     USE_WDM = True
 except ImportError:
     USE_WDM = False
@@ -46,6 +35,10 @@ except ImportError:
 
 COMMENT_TEXT = "Be aware of Dark Technology #DarkTech"
 
+
+# ---------------------------------------------------------------------------
+# WebDriver initialisation
+# ---------------------------------------------------------------------------
 
 def get_driver() -> webdriver.Chrome:
     """Initialise the Chrome webdriver, using webdriver_manager if available."""
@@ -56,122 +49,293 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome()
 
 
-def login(driver: webdriver.Chrome, base_url: str, email: str) -> None:
-    """Log in or register using the provided e-mail on the bot-simulation site.
+# ---------------------------------------------------------------------------
+# Login flow
+# ---------------------------------------------------------------------------
 
-    :param driver: Selenium WebDriver instance
-    :param base_url: URL of the bot simulation home page (e.g. http://localhost:8501)
-    :param email: E‑mail address to log in or register
+def login(driver: webdriver.Chrome, base_url: str, email: str) -> None:
+    """
+    Log in or register using the provided e-mail on the bot-simulation site.
+
+    This version uses heuristic element lookup so students can see how a bot
+    might search for likely targets:
+      * It tries several ways to locate the e-mail field (type=email, placeholder
+        mentioning 'mail', aria-label mentioning 'mail', fallback first text input).
+      * It tries several ways to locate a login/register button (text containing
+        'log' or 'register', then any button).
+
+    One of these strategies should always succeed as long as the login e-mail
+    input somehow references 'mail' and the button mentions login/register.
     """
     driver.get(base_url)
     wait = WebDriverWait(driver, 10)
 
-    # Locate the email input field. Depending on the site, the placeholder or label may differ.
-    email_input = wait.until(
-        EC.presence_of_element_located(
-            (
-                By.XPATH,
-                "//input[@type='text' or @placeholder='School e‑mail address' or @placeholder='Email' or contains(@placeholder,'e‑mail')]",
-            )
-        )
-    )
-    email_input.clear()
-    email_input.send_keys(email)
-
-    # Click the Log in / Register button
-    login_button = wait.until(
-        EC.element_to_be_clickable(
-            (
-                By.XPATH,
-                "//button[normalize-space()='Log in / Register' or normalize-space()='Login' or contains(text(),'Log in')]",
-            )
-        )
-    )
-    login_button.click()
-
-    # Wait a moment for login to complete. Adjust as needed based on your app.
-    time.sleep(3)
-
-
-def navigate_to_feed(driver: webdriver.Chrome) -> None:
-    """Navigate to the Feed page using the sidebar or URL.
-
-    This function assumes the sidebar has a link or radio button labelled "Feed".
-    You may need to modify the element selectors if your navigation differs.
-    """
-    # Wait for sidebar to appear
-    wait = WebDriverWait(driver, 10)
+    # Try to navigate to the Login page via the sidebar nav link.
+    # Streamlit renders these links as <a data-testid="stSidebarNavLink"> with
+    # a <span> child containing the page label.
     try:
-        feed_nav = wait.until(
+        login_link = wait.until(
             EC.element_to_be_clickable(
                 (
                     By.XPATH,
-                    "//div[contains(@class,'sidebar')]//div[normalize-space()='Feed' or normalize-space()='feed']",
+                    "//a[@data-testid='stSidebarNavLink']"
+                    "[.//span[contains(translate(normalize-space(),'LOGIN','login'),'login')]]",
                 )
             )
         )
-        feed_nav.click()
+        login_link.click()
+        time.sleep(2)
+    except TimeoutException:
+        # If the sidebar link isn't found, we assume we are already on the login page.
+        pass
+
+    # ---------- Find an input element suitable for entering the e-mail ----------
+
+    email_input = None
+
+    # Strategy 1: input type="email"
+    try:
+        email_input = wait.until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
+        )
+    except TimeoutException:
+        email_input = None
+
+    # Strategy 2: placeholder mentioning 'mail' (e.g. "Enter your school e-mail")
+    if email_input is None:
+        try:
+            email_input = wait.until(
+                EC.presence_of_element_located(
+                    (
+                        By.XPATH,
+                        "//input[contains(translate(@placeholder,"
+                        " 'MAIL','mail'),'mail')]",
+                    )
+                )
+            )
+        except TimeoutException:
+            email_input = None
+
+    # Strategy 3: aria-label mentioning 'mail' (Streamlit often uses aria-label from label)
+    if email_input is None:
+        try:
+            email_input = wait.until(
+                EC.presence_of_element_located(
+                    (
+                        By.XPATH,
+                        "//input[contains(translate(@aria-label,"
+                        " 'MAIL','mail'),'mail')]",
+                    )
+                )
+            )
+        except TimeoutException:
+            email_input = None
+
+    # Fallback: first visible text input
+    if email_input is None:
+        try:
+            email_input = wait.until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='text']"))
+            )
+        except TimeoutException:
+            email_input = None
+
+    if email_input is None:
+        raise RuntimeError("Unable to locate email input field on login page.")
+
+    try:
+        email_input.clear()
     except Exception:
-        # Fallback: manually open the feed page by URL path
-        driver.get(driver.current_url.rstrip('/') + '#feed')
+        # Some inputs complain if you clear before typing; it's safe to ignore.
+        pass
+    email_input.send_keys(email)
+
+    # ---------- Find the login/register button ----------
+
+    login_button = None
+    button_xpaths = [
+        # Any button whose visible text mentions 'log' (login / log in)
+        "//button[contains(translate(., 'LOG','log'),'log')]",
+        # Any button whose visible text mentions 'register'
+        "//button[contains(translate(., 'REGISTER','register'),'register')]",
+        # As a last resort, any clickable button
+        "//button",
+    ]
+
+    for xpath in button_xpaths:
+        try:
+            candidate = wait.until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+            if candidate:
+                login_button = candidate
+                break
+        except TimeoutException:
+            continue
+
+    if login_button is None:
+        raise RuntimeError("Unable to locate login/register button on login page.")
+
+    login_button.click()
+    # Wait a bit for login to complete / redirect
+    time.sleep(3)
+
+
+# ---------------------------------------------------------------------------
+# Navigation to feed
+# ---------------------------------------------------------------------------
+
+def navigate_to_feed(driver: webdriver.Chrome) -> None:
+    """
+    Navigate to the Feed page using the sidebar or a URL.
+
+    This assumes the sidebar has a link labelled 'Feed' (as in the Streamlit UI).
+    """
+    wait = WebDriverWait(driver, 10)
+    try:
+        feed_link = wait.until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    "//a[@data-testid='stSidebarNavLink']"
+                    "[.//span[contains(translate(normalize-space(),'FEED','feed'),'feed')]]",
+                )
+            )
+        )
+        feed_link.click()
+        time.sleep(2)
+    except TimeoutException:
+        # Fallback: try adding a path fragment – this is more of a demo than a guarantee.
+        driver.get(driver.current_url.rstrip("/") + "/Feed")
         time.sleep(2)
 
 
-def comment_on_posts(driver: webdriver.Chrome, comment: str) -> None:
-    """Post the given comment under each existing post on the feed.
+# ---------------------------------------------------------------------------
+# Commenting on posts
+# ---------------------------------------------------------------------------
 
-    :param driver: Selenium WebDriver instance
-    :param comment: The comment text to post
+def comment_on_posts(driver: webdriver.Chrome, comment: str) -> None:
+    """
+    Post the given comment under each existing post on the feed.
+
+    Instead of trying to identify the entire post card, this function looks for
+    all <details> elements whose <summary> contains 'Comments'. For each such
+    block, it:
+      * ensures the comments section is open,
+      * finds a text input whose placeholder/aria-label includes 'comment',
+      * types the comment,
+      * clicks a button whose text contains both 'add' and 'comment'.
+
+    This shows students how a bot can use reasonable heuristics instead of
+    relying on a single brittle selector.
     """
     wait = WebDriverWait(driver, 10)
-    # Ensure posts have loaded. Modify the selector if your post container differs.
-    posts = wait.until(
-        EC.presence_of_all_elements_located(
-            (
-                By.XPATH,
-                "//div[contains(@class,'post') or contains(@class,'card') or contains(@id,'post')]",
+
+    try:
+        details_blocks = wait.until(
+            EC.presence_of_all_elements_located(
+                (
+                    By.XPATH,
+                    "//details[.//summary[contains("
+                    "translate(normalize-space(),'COMMENTS','comments'),'comments')]]",
+                )
             )
         )
-    )
-    for idx, post in enumerate(posts, start=1):
+    except TimeoutException:
+        print("No comment sections (details/summary) found on the page.")
+        return
+
+    print(f"Found {len(details_blocks)} comment sections.")
+
+    for idx, details in enumerate(details_blocks, start=1):
         try:
-            # Expand comments section if collapsible
+            # Scroll into view to avoid 'element not interactable' issues
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", details
+            )
+            time.sleep(0.5)
+
+            # Open the comments section if it's collapsed
             try:
-                expander = post.find_element(
-                    By.XPATH,
-                    ".//summary[contains(text(),'Comments') or contains(text(),'comments')]",
-                )
-                expander.click()
-                time.sleep(1)
+                if details.get_attribute("open") is None:
+                    summary = details.find_element(By.TAG_NAME, "summary")
+                    summary.click()
+                    time.sleep(0.5)
             except Exception:
                 pass
 
-            # Find the comment input field within the post
-            comment_box = post.find_element(
-                By.XPATH,
-                ".//input[@type='text' or @placeholder='Your comment' or contains(@placeholder,'comment')]",
-            )
-            comment_box.clear()
+            # Find a comment input field inside this details block.
+            comment_box = None
+            comment_input_xpaths = [
+                # any text input whose placeholder mentions 'comment'
+                ".//input[@type='text' and "
+                "contains(translate(@placeholder,'COMMENT','comment'),'comment')]",
+                # placeholder may not be set but aria-label might mention comment
+                ".//input[@type='text' and "
+                "contains(translate(@aria-label,'COMMENT','comment'),'comment')]",
+                # last resort: first text input in the details
+                ".//input[@type='text']",
+            ]
+
+            for cx in comment_input_xpaths:
+                try:
+                    comment_box = details.find_element(By.XPATH, cx)
+                    if comment_box:
+                        break
+                except Exception:
+                    continue
+
+            if comment_box is None:
+                print(f"[Section {idx}] No suitable comment input field found; skipping.")
+                continue
+
+            try:
+                comment_box.clear()
+            except Exception:
+                pass
             comment_box.send_keys(comment)
 
-            # Click the Add comment button
-            add_btn = post.find_element(
-                By.XPATH,
-                ".//button[contains(text(),'Add comment') or contains(text(),'Add Comment')]",
-            )
-            add_btn.click()
-            time.sleep(1)
-            print(f"Commented on post #{idx}")
-        except Exception as exc:
-            print(f"Skipping a post due to error: {exc}")
+            # Find the 'Add comment' button: text containing both 'add' and 'comment'
+            add_button = None
+            add_button_xpaths = [
+                ".//button[contains(translate(.,'ADDCOMMENT','addcomment'),'add')"
+                " and contains(translate(.,'ADDCOMMENT','addcomment'),'comment')]",
+                ".//button[contains(translate(.,'COMMENT','comment'),'comment')]",
+                ".//button",
+            ]
+            for bx in add_button_xpaths:
+                try:
+                    candidate = details.find_element(By.XPATH, bx)
+                    if candidate:
+                        add_button = candidate
+                        break
+                except Exception:
+                    continue
 
+            if add_button is None:
+                print(f"[Section {idx}] Could not find an 'add comment' button; skipping.")
+                continue
+
+            add_button.click()
+            time.sleep(1)
+            print(f"Commented in section #{idx}")
+
+        except Exception as exc:
+            print(f"Skipping a comment section due to error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Automate commenting on bot simulation posts.")
+    parser = argparse.ArgumentParser(
+        description="Automate commenting on bot simulation posts."
+    )
     parser.add_argument(
         "--email",
         required=True,
-        help="E‑mail address to log in/register with",
+        help="E-mail address to log in/register with",
     )
     parser.add_argument(
         "--base-url",
