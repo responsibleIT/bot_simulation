@@ -9,6 +9,7 @@ from helpers.bot_utils import (
     add_like_to_post,
     add_like_to_comment,
     get_comments_for_post,
+    get_all_bot_ids,
 )
 from helpers.appwrite_utils import (
     list_documents,
@@ -29,14 +30,46 @@ def user_color(user_id: str) -> str:
     return colors[h % len(colors)]
 
 
-def user_badge(user_id: str) -> str:
-    """Return small HTML badge with colored circle + userid."""
+def user_badge(user_id: str, is_bot: bool = False) -> str:
+    """Return small HTML badge with colored circle + userid.
+
+    When *is_bot* is True the badge includes a robot emoji and red styling.
+    """
     color = user_color(user_id)
+    if is_bot:
+        return f"""
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:#ff4b4b;">
+          <span style="width:12px;height:12px;border-radius:50%;background:{color};display:inline-block;"></span>
+          🤖 <span>posted by: <code style="color:#ff4b4b;">{user_id[:12]}…</code> <b>(BOT)</b></span>
+        </span>
+        """
     return f"""
     <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:#aaa;">
       <span style="width:12px;height:12px;border-radius:50%;background:{color};display:inline-block;"></span>
       <span>posted by: <code>{user_id}</code></span>
     </span>
+    """
+
+
+def _bot_card_css() -> str:
+    """Return CSS that gives bot-authored cards a highlighted border."""
+    return """
+    <style>
+    .bot-reveal-post {
+        border-left: 4px solid #ff4b4b;
+        background: rgba(255, 75, 75, 0.05);
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-bottom: 4px;
+    }
+    .bot-reveal-comment {
+        border-left: 3px solid #ff4b4b;
+        background: rgba(255, 75, 75, 0.05);
+        border-radius: 4px;
+        padding: 4px 8px;
+        margin-bottom: 2px;
+    }
+    </style>
     """
 
 def run_feed_page() -> None:
@@ -45,6 +78,21 @@ def run_feed_page() -> None:
     require_login()
     user = st.session_state['user']
     st.title("Social Feed")
+
+    # --- Bot Reveal toggle ---------------------------------------------------
+    reveal_bots = st.toggle("🤖 Reveal bot posts", value=False,
+                            help="Highlight posts and comments made by bots")
+    bot_id_set: set = set()
+    if reveal_bots:
+        st.markdown(_bot_card_css(), unsafe_allow_html=True)
+        try:
+            bot_id_set = set(get_all_bot_ids())
+        except Exception as exc:
+            st.warning(f"Could not load bot IDs: {exc}")
+            bot_id_set = set()
+        if not bot_id_set:
+            st.info("No bots found in the database. Create some bots first!")
+
     # Provide a button to refresh the feed
     if st.button("Refresh feed"):
         st.rerun()
@@ -89,10 +137,19 @@ def run_feed_page() -> None:
     # Display posts
     for post in posts:
         post_id = post.get("$id")
+        post_user_id = post.get("userid", "unknown")
+        is_bot_post = reveal_bots and post_user_id in bot_id_set
+
+        # Visual highlight for bot posts (non-interactive HTML only)
+        if is_bot_post:
+            st.markdown(
+                f'<div class="bot-reveal-post"><b>🤖 Bot-generated post</b></div>',
+                unsafe_allow_html=True,
+            )
+
         st.markdown(f"### {post.get('title')}")
         st.write(post.get("content"))
-        post_user_id = post.get("userid", "unknown")
-        st.markdown(user_badge(post_user_id), unsafe_allow_html=True)
+        st.markdown(user_badge(post_user_id, is_bot=is_bot_post), unsafe_allow_html=True)
         # Display image if available
         image_file_id = post.get("imageurl")
         if image_file_id:
@@ -122,9 +179,16 @@ def run_feed_page() -> None:
                 comment_content = comment.get("content")
                 comment_likes = comment.get("likes", 0)
                 comment_user_id = comment.get("userid", "unknown")
+                is_bot_comment = reveal_bots and comment_user_id in bot_id_set
+
+                if is_bot_comment:
+                    st.markdown(
+                        '<div class="bot-reveal-comment"><b>🤖 Bot comment</b></div>',
+                        unsafe_allow_html=True,
+                    )
 
                 st.markdown(
-                    user_badge(comment_user_id),
+                    user_badge(comment_user_id, is_bot=is_bot_comment),
                     unsafe_allow_html=True,
                 )
                 st.write(f"{comment_content} (likes: {comment_likes})")

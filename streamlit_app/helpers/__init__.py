@@ -8,6 +8,7 @@ from .appwrite_utils import q_equal, list_documents, create_document, update_doc
 from .openai_utils import generate_post_using_chatgpt, generate_comment_using_chatgpt, call_openai_image
 from .bot_utils import (
     find_important_people,
+    get_all_bot_ids,
     get_user_posts,
     create_post,
     create_comment,
@@ -30,6 +31,7 @@ __all__ = [
     "generate_comment_using_chatgpt",
     "call_openai_image",
     "find_important_people",
+    "get_all_bot_ids",
     "get_user_posts",
     "create_post",
     "create_comment",

@@ -38,6 +38,12 @@ def find_important_people() -> List[str]:
     return [doc.get("$id") for doc in docs]
 
 
+def get_all_bot_ids() -> List[str]:
+    """Return a list of all bot document IDs."""
+    docs = list_documents(BOTS_COLLECTION_ID)
+    return [doc.get("$id") for doc in docs]
+
+
 def get_user_posts(user_id: str) -> List[Dict[str, Any]]:
     """Return all posts created by a specific user."""
     return list_documents(POSTS_COLLECTION_ID, [q_equal("userid", user_id)])
@@ -115,9 +121,9 @@ def run_post_bot(bot: Dict[str, Any], important_people: List[str], logs: List[st
         return
     title = generated.get("title", "")
     content = generated.get("content", "")
-    # Generate an image using OpenAI if configured
+    # Generate an image using OpenAI ~33% of the time
     image_file_id = None
-    if content:
+    if content and random.random() < 0.33:
         openai_url = call_openai_image(content)
         if openai_url:
             # upload to Appwrite and get back a short file_id
@@ -130,16 +136,21 @@ def run_post_bot(bot: Dict[str, Any], important_people: List[str], logs: List[st
     logs.append(f"Bot {bot.get('$id')} posted a new message titled '{title}'.")
 
 
-def run_comment_bot(bot: Dict[str, Any], important_people: List[str], logs: List[str]) -> None:
-    """Execute a single iteration of a comment bot."""
+def run_comment_bot(bot: Dict[str, Any], important_people: List[str], bot_ids: List[str], logs: List[str]) -> None:
+    """Execute a single iteration of a comment bot.
+
+    The bot can comment on posts by important people **or** other bots.
+    """
     tone = bot.get("tone")
-    if not important_people:
-        logs.append(f"Bot {bot.get('$id')} could not find any important people to comment on.")
+    # Build a combined pool of users whose posts can be commented on
+    candidate_users = list(set(important_people + bot_ids))
+    if not candidate_users:
+        logs.append(f"Bot {bot.get('$id')} could not find any users to comment on.")
         return
-    target_user = random.choice(important_people)
+    target_user = random.choice(candidate_users)
     posts = get_user_posts(target_user)
     if not posts:
-        logs.append(f"Bot {bot.get('$id')} found no posts by important user {target_user} to comment on.")
+        logs.append(f"Bot {bot.get('$id')} found no posts by user {target_user} to comment on.")
         return
     post = random.choice(posts)
     content_dict = generate_comment_using_chatgpt(f"content: {post.get('content', '')}", tone)
@@ -207,7 +218,7 @@ def run_bots_once(logs: List[str]) -> None:
             if bottype == "post":
                 run_post_bot(bot, important_people, logs)
             elif bottype == "comment":
-                run_comment_bot(bot, important_people, logs)
+                run_comment_bot(bot, important_people, bot_ids, logs)
             elif bottype == "reaction":
                 run_reaction_bot(bot, important_people, bot_ids, logs)
             else:
@@ -257,7 +268,7 @@ def run_bots_once_callback(
                 run_post_bot(bot, important_people, logs)
 
             elif bottype == "comment":
-                run_comment_bot(bot, important_people, logs)
+                run_comment_bot(bot, important_people, bot_ids, logs)
 
             elif bottype == "reaction":
                 run_reaction_bot(bot, important_people, bot_ids, logs)

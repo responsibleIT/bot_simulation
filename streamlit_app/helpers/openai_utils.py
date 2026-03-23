@@ -41,7 +41,7 @@ def call_openai_chat(
         "Content-Type": "application/json",
     }
     payload: Dict[str, Any] = {
-        "model": "gpt-4o",
+        "model": "gpt-4o-mini",
         "messages": messages,
         "max_tokens": 400,
     }
@@ -105,9 +105,9 @@ def generate_post_using_chatgpt(original_post: str, bot_tone: str) -> Optional[D
         {
             "name": "generate_post",
             "description": (
-                f"Generate a new post based on the original post: {original_post}. Write the post like someone would on social media. Make it seem it's written by a human and not AI."
+                f"Generate a new post based on the original post: {original_post}. Write the post in DUTCH (Nederlands). Write the post like someone would on social media. Make it seem it's written by a human and not AI."
                 f"The new post should have a specific tone: {bot_tone}. Also make sure that this tone is reflected in both the title and content of the post in a human on social media way."
-                "The new post should be generated using the ChatGPT model."
+                "The new post should be generated using the ChatGPT model. The title and content MUST be in Dutch."
             ),
             "parameters": {
                 "type": "object",
@@ -133,13 +133,14 @@ def generate_post_using_chatgpt(original_post: str, bot_tone: str) -> Optional[D
         }
     ]
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the supplied tools to assist the user in a human way."},
+        {"role": "system", "content": "You are a helpful assistant. You ALWAYS respond in Dutch (Nederlands). Use the supplied tools to assist the user in a human way."},
         {
             "role": "user",
             "content": (
-                f"Hey, can you generate a title and content for a social media post "
-                f"for me related this original post: {original_post}. Post something similar "
-                f"being positive, neutral or critical based on the following tone value: {bot_tone}"
+                f"Hey, kan je een titel en inhoud genereren voor een social media post "
+                f"gerelateerd aan deze originele post: {original_post}. Post iets vergelijkbaars "
+                f"met een positieve, neutrale of kritische toon op basis van de volgende toonwaarde: {bot_tone}. "
+                f"Schrijf alles in het Nederlands."
             ),
         },
     ]
@@ -155,9 +156,9 @@ def generate_comment_using_chatgpt(original_post: str, bot_tone: str) -> Optiona
         {
             "name": "generate_comment",
             "description": (
-                f"Generate a new comment based on the original post: {original_post}. Write the comment like someone would on social media. Make it seem it's written by a human and not AI."
+                f"Generate a new comment based on the original post: {original_post}. Write the comment in DUTCH (Nederlands). Write the comment like someone would on social media. Make it seem it's written by a human and not AI."
                 f"The new comment should have a specific tone: {bot_tone}. Also make sure that this tone is reflected in the comment in a human on social media way."
-                "The new comment should be generated using the ChatGPT model."
+                "The new comment should be generated using the ChatGPT model. The comment MUST be in Dutch."
             ),
             "parameters": {
                 "type": "object",
@@ -175,12 +176,13 @@ def generate_comment_using_chatgpt(original_post: str, bot_tone: str) -> Optiona
         }
     ]
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the supplied tools to assist the user."},
+        {"role": "system", "content": "You are a helpful assistant. You ALWAYS respond in Dutch (Nederlands). Use the supplied tools to assist the user."},
         {
             "role": "user",
             "content": (
-                f"Hey, can you generate a comment for me related this original post: {original_post}. "
-                f"Post something similar being positive, neutral or critical based on the following tone value: {bot_tone}"
+                f"Hey, kan je een reactie genereren gerelateerd aan deze originele post: {original_post}. "
+                f"Schrijf iets vergelijkbaars met een positieve, neutrale of kritische toon op basis van de volgende toonwaarde: {bot_tone}. "
+                f"Schrijf de reactie in het Nederlands."
             ),
         },
     ]

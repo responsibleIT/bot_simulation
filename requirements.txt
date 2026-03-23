@@ -7,6 +7,7 @@ pandas
 numpy
 aiohttp
 openai>=1.12.0
+plotly>=5.18
 selenium>=4.12
 webdriver-manager>=3.8
 pandas>=1.5
